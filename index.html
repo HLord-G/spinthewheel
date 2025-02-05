@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {},
+        },
+        plugins: [daisyui],
+      };
+    </script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@2.51.5/dist/full.css"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body
+    class="flex flex-col items-center justify-center min-h-screen bg-gray-100"
+  >
+    <h1 class="text-3xl font-bold my-4">Spin the Wheel!</h1>
+
+    <div class="flex items-center space-x-8">
+      <!-- Add Entries (Left Side) -->
+      <div class="w-[250px] text-center bg-white p-4 rounded-lg shadow-md">
+        <h2 class="text-lg font-semibold mb-2">Add Entries</h2>
+        <input
+          type="text"
+          id="newEntry"
+          placeholder="Enter new item"
+          class="input input-bordered mb-2 w-full"
+        />
+        <input
+          hidden
+          type="file"
+          id="imageUpload"
+          class="file-input file-input-bordered mb-2 w-full"
+        />
+        <button id="addEntry" class="btn btn-success w-full">Add</button>
+
+        <!-- List of Entries -->
+        <ul id="entriesList" class="mt-4 space-y-2"></ul>
+      </div>
+
+      <!-- Wheel Container -->
+      <div class="relative flex flex-col items-center">
+        <!-- Arrow Indicator (Pointing Down) -->
+        <div class="absolute -top-8">
+          <svg width="40" height="40">
+            <polygon points="20,40 0,0 40,0" fill="red" />
+          </svg>
+        </div>
+
+        <!-- Wheel -->
+        <canvas
+          id="wheelCanvas"
+          width="400"
+          height="400"
+          class="shadow-lg rounded-full"
+        ></canvas>
+      </div>
+
+      <!-- Buttons on the Right -->
+      <div class="flex flex-col space-y-4">
+        <button id="spinButton" class="btn btn-primary">Spin</button>
+        <button id="shuffleButton" class="btn btn-secondary">Shuffle</button>
+      </div>
+    </div>
+
+    <!-- Winner Popup -->
+    <div
+      id="winnerPopup"
+      class="hidden fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white p-4 rounded shadow-lg text-center"
+    >
+      <h2 class="text-xl font-bold">Winner: <span id="winnerName"></span></h2>
+      <div class="mt-4 flex justify-center gap-4">
+        <button id="removeWinner" class="btn btn-error">Remove</button>
+        <button id="closePopup" class="btn btn-outline">Close</button>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/localbase/dist/localbase.min.js"></script>
+  </body>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", async function () {
+      let db = new Localbase("db");
+      const canvas = document.getElementById("wheelCanvas");
+      const ctx = canvas.getContext("2d");
+      const spinButton = document.getElementById("spinButton");
+      const shuffleButton = document.getElementById("shuffleButton");
+      const newEntryInput = document.getElementById("newEntry");
+      const imageUpload = document.getElementById("imageUpload");
+      const addEntryButton = document.getElementById("addEntry");
+      const entriesList = document.getElementById("entriesList");
+      const winnerPopup = document.getElementById("winnerPopup");
+      const winnerName = document.getElementById("winnerName");
+      const removeWinner = document.getElementById("removeWinner");
+      const closePopup = document.getElementById("closePopup");
+
+      let entries = [];
+      let spinning = false;
+      let currentRotation = 0;
+
+      async function loadEntries() {
+        let data = await db.collection("entries").get();
+        entries = data || [];
+        updateEntriesList();
+        drawWheel();
+      }
+
+      function saveEntries() {
+        db.collection("entries").set(entries);
+      }
+
+      function drawWheel() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (entries.length === 0) return;
+
+        const sliceAngle = (2 * Math.PI) / entries.length;
+
+        entries.forEach((entry, i) => {
+          const startAngle = currentRotation + i * sliceAngle;
+          const endAngle = startAngle + sliceAngle;
+
+          ctx.beginPath();
+          ctx.moveTo(200, 200);
+          ctx.arc(200, 200, 200, startAngle, endAngle);
+          ctx.closePath();
+          ctx.fillStyle = i % 2 === 0 ? "#ffcc00" : "#ff6666";
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.save();
+          ctx.translate(200, 200);
+          ctx.rotate(startAngle + sliceAngle / 2);
+          ctx.textAlign = "center";
+          ctx.font = "18px Arial";
+          ctx.fillStyle = "#fff";
+          ctx.fillText(entry.text, 100, 10);
+          ctx.restore();
+        });
+
+        // Draw Arrow at the top center
+        ctx.fillStyle = "red";
+        ctx.beginPath();
+        ctx.moveTo(190, 10);
+        ctx.lineTo(210, 10);
+        ctx.lineTo(200, 40);
+        ctx.fill();
+      }
+
+      function addEntry() {
+        const text = newEntryInput.value.trim();
+        const file = imageUpload.files[0];
+
+        if (text) {
+          const reader = new FileReader();
+          reader.onload = function (e) {
+            entries.push({ text, image: file ? e.target.result : null });
+            saveEntries();
+            updateEntriesList();
+            drawWheel();
+          };
+          if (file) reader.readAsDataURL(file);
+          else {
+            entries.push({ text, image: null });
+            saveEntries();
+            updateEntriesList();
+            drawWheel();
+          }
+          newEntryInput.value = "";
+          imageUpload.value = "";
+        }
+      }
+
+      function updateEntriesList() {
+        entriesList.innerHTML = "";
+        entries.forEach((entry, index) => {
+          const li = document.createElement("li");
+          li.className = "p-2 bg-gray-200 rounded flex justify-between items-center";
+
+          const textSpan = document.createElement("span");
+          textSpan.textContent = entry.text;
+          li.appendChild(textSpan);
+
+          // Edit Button
+          const editButton = document.createElement("button");
+          editButton.textContent = "✏️";
+          editButton.className = "ml-2 text-blue-500";
+          editButton.onclick = () => {
+            const newText = prompt("Edit entry:", entry.text);
+            if (newText) {
+              entries[index].text = newText;
+              saveEntries();
+              updateEntriesList();
+              drawWheel();
+            }
+          };
+          li.appendChild(editButton);
+
+          // Remove Button
+          const removeButton = document.createElement("button");
+          removeButton.textContent = "❌";
+          removeButton.className = "ml-2 text-red-500";
+          removeButton.onclick = () => {
+            entries.splice(index, 1);
+            saveEntries();
+            updateEntriesList();
+            drawWheel();
+          };
+          li.appendChild(removeButton);
+
+          entriesList.appendChild(li);
+        });
+      }
+
+      function spinWheel() {
+        if (spinning || entries.length === 0) return;
+        spinning = true;
+
+        let spinTime = Math.random() * 3000 + 3000; // Random spin time (3-6s)
+        let spinAngle = 0;
+        let spinVelocity = Math.random() * 20 + 10; // Random starting speed
+
+        function animateSpin() {
+          spinAngle += spinVelocity;
+          spinVelocity *= 0.98; // Gradual slowdown
+
+          if (spinVelocity > 0.1) {
+            requestAnimationFrame(animateSpin);
+          } else {
+            spinning = false;
+            alignArrowAndPickWinner(spinAngle);
+          }
+
+          currentRotation = spinAngle;
+          drawWheel();
+        }
+
+        animateSpin();
+      }
+
+      function alignArrowAndPickWinner(rotation) {
+        const sliceAngle = (2 * Math.PI) / entries.length;
+
+        // Normalize rotation so arrow is always at 0 degrees
+        let finalRotation = (rotation + Math.PI / 2) % (2 * Math.PI);
+        if (finalRotation < 0) finalRotation += 2 * Math.PI;
+
+        // Compute winner slice index
+        let winnerIndex = Math.floor(finalRotation / sliceAngle);
+        winnerIndex = (entries.length - winnerIndex - 1) % entries.length; // Adjust index
+
+        let winner = entries[winnerIndex];
+
+        // Set exact rotation for visual alignment
+        currentRotation = (winnerIndex * sliceAngle) - (Math.PI / 2);
+        drawWheel();
+
+        // Show winner in popup
+        winnerName.textContent = winner.text;
+        winnerPopup.classList.remove("hidden");
+
+        removeWinner.onclick = () => {
+          entries.splice(winnerIndex, 1);
+          saveEntries();
+          updateEntriesList();
+          drawWheel();
+          winnerPopup.classList.add("hidden");
+        };
+
+        closePopup.onclick = () => {
+          winnerPopup.classList.add("hidden");
+        };
+      }
+
+      spinButton.addEventListener("click", spinWheel);
+      addEntryButton.addEventListener("click", addEntry);
+      shuffleButton.addEventListener("click", () => {
+        entries.sort(() => Math.random() - 0.5);
+        saveEntries();
+        updateEntriesList();
+        drawWheel();
+      });
+
+      loadEntries();
+    });
+  </script>
+</html>
